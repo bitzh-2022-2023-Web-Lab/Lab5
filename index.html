@@ -1,0 +1,369 @@
+<!--姓名：曾锦麟
+    班级：软工3班
+    实验名称：建议通讯录
+    实验步骤：
+    1. 使用html、css、js建立简易的UI
+    2. 使用 indexedDB 实现数据的读取和存储
+ -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简易手机通讯录</title>
+    <style>
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+        }
+
+        .title {
+            margin: auto;
+            text-align: center;
+        }
+
+        .formArea {
+            text-align: center;
+            width: 500px;
+            margin: auto;
+        }
+
+        .btnArea {
+            width: 280px;
+            margin: auto;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-around;
+        }
+
+        .dataShows {
+            min-height: 100px;
+            width: 500px;
+            margin: auto;
+            border: solid 1px black;
+        }
+
+        .dataShows table {
+            width: 100%;
+            text-align: center;
+            border-spacing: 0;
+        }
+
+        .dataShows table td {
+            border-bottom: solid 1px black;
+            cursor: pointer;
+            width: 50%;
+        }
+
+        .dataShows table td:active {
+            background-color: cornflowerblue;
+        }
+
+        .dataShows table tr:focus {
+            background-color: cornflowerblue;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="title">
+        <h1>通讯录</h1>
+    </div>
+
+    <form action="submit">
+        <div class="formArea">
+            <div class="inputArea">
+                姓名：<input type="text" name="name" id="name">
+                <br><br>
+                电话：<input type="text" name="phone" id="phone">
+            </div>
+            <br><br>
+            <div class="btnArea">
+                <input type="button" value="添加" onclick="createData()">
+                <input type="button" value="查询" onclick="findData()">
+                <input type="button" value="删除" onclick="deleteData()">
+                <input type="reset" value="重置">
+            </div>
+        </div>
+    </form>
+    <br><br>
+    <div class="dataShows">
+        <table id="dataShows">
+        </table>
+    </div>
+
+    <script>
+        // 全局变量
+        // 表格数据
+        var global_table_data = []
+
+        // indexedDB 类
+        class IndexedDB {
+            db
+            // 连接数据库
+            connectDB = () => {
+                return new Promise((resolve, reject) => {
+                    const that = this
+                    // 判断是否支持
+                    var indexedDB = window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.msIndexedDB;
+                    if (!indexedDB) {
+                        reject({
+                            code: -2,
+                            msg: "你的浏览器不支持IndexedDB"
+                        });
+                    }
+
+                    // 打开数据库
+                    var requestDB = indexedDB.open('phoneBook', 1);
+
+                    // 监听 IndexedDB 是否创建成功
+                    requestDB.onsuccess = function (e) {
+                        that.db = requestDB.result;
+                        resolve({
+                            code: 1,
+                            msg: '数据库打开成功'
+                        })
+                    };
+                    requestDB.onerror = function (e) {
+                        reject({
+                            code: -1,
+                            msg: '数据库打开报错',
+                            event: e
+                        })
+                    };
+
+                    // 监听版本升级事件  
+                    requestDB.onupgradeneeded = function (e) {
+                        console.log('数据库更新成功');
+
+                        that.db = e.target.result;
+                        // 新建数据库时-新建对象仓库（新建表）表名 'phoneBook'
+                        var objStore;
+                        if (!that.db.objectStoreNames.contains('phoneBook')) {
+                            // 创建新的存储对象
+                            objStore = that.db.createObjectStore('phoneBook', { ketPath: 'phone' });
+                            // 新建索引
+                            objStore.createIndex('name', 'name', { unique: false });
+                            objStore.createIndex('phone', 'phone', { unique: true });
+                        }
+                        resolve()
+                    }
+                })
+            }
+
+            // 新增数据
+            createOne = (param) => {
+                return new Promise((resolve, reject) => {
+                    // 开启事务
+                    var transaction = this.db.transaction(['phoneBook'], 'readwrite');
+                    // 获取具体的对象存储
+                    var objectStore = transaction.objectStore('phoneBook');
+                    var request = objectStore.add(param, param.phone);
+                    // 写入数据的事件监听
+                    request.onsuccess = (e) => {
+                        resolve({
+                            code: 0,
+                            msg: '数据写入成功',
+                            event: e
+                        })
+                    };
+
+                    request.onerror = (e) => {
+                        console.error(e)
+                        reject({
+                            code: -1,
+                            msg: '数据写入失败',
+                            event: e
+                        })
+                    }
+                })
+            }
+
+            // 通过index查询数据
+            findByIndex = (index, value) => {
+                return new Promise((resolve, reject) => {
+                    var transaction = this.db.transaction(['phoneBook'], 'readonly')
+                    var objectStore = transaction.objectStore('phoneBook')
+                    var new_key = objectStore.index(index)
+                    var result = new_key.get(value)
+                    result.onsuccess = function (e) {
+                        resolve(e)
+                    }
+                    result.onerror = function (e) {
+                        reject(e)
+                    }
+                })
+            }
+
+            // 遍历数据
+            findAll = () => {
+                return new Promise((resolve, reject) => {
+                    var transaction = this.db.transaction(['phoneBook']);
+                    var objectStore = transaction.objectStore('phoneBook');
+                    var request = objectStore.getAll();
+
+                    request.onsuccess = function (e) {
+                        var res = e.target.result;
+                        resolve({
+                            code: 0,
+                            msg: '遍历数据成功',
+                            data: res
+                        })
+                    };
+                })
+            }
+
+            // 删除
+            delData = (value) => {
+                return new Promise((resolve, reject) => {
+                    var transaction = this.db.transaction(['phoneBook'], 'readwrite');
+                    var objectStore = transaction.objectStore('phoneBook');
+                    var request = objectStore.delete(value);
+
+                    request.onsuccess = function (e) {
+                        resolve({
+                            code: 0,
+                            msg: '数据删除成功'
+                        })
+                    };
+
+                    request.onerror = function (e) {
+                        console.err(e)
+                        reject({
+                            code: -1,
+                            msg: '数据删除失败'
+                        })
+                    }
+                })
+            }
+
+            constructor() {
+            }
+        }
+
+        // 创建表格
+        const createTable = (data) => {
+            // 获取节点
+            const table = document.querySelector(".dataShows table")
+            // 初始化表格
+            table.innerHTML = ``
+            const title_tr = document.createElement('tr')
+            const title_td_name = document.createElement('td')
+            const title_td_phone = document.createElement('td')
+            title_td_name.innerText = `姓名`
+            title_td_phone.innerText = `手机号`
+            title_tr.appendChild(title_td_name)
+            title_tr.appendChild(title_td_phone)
+            table.appendChild(title_tr)
+
+            // 渲染数据
+            for (let i = 0; i < data.length; i++) {
+                // 创建tr
+                const tr = document.createElement('tr')
+                // 创建td
+                const td_name = document.createElement('td')
+                const td_phone = document.createElement('td')
+                // 设置tr背景颜色
+                if (i % 2 == 0) {
+                    tr.style.backgroundColor = `lightgray`
+                } else {
+                    tr.style.backgroundColor = `white`
+                }
+                // 保存颜色数据
+                const trColor = tr.style.backgroundColor
+                // 赋值
+                td_name.innerText = data[i].name
+                td_phone.innerText = data[i].phone
+                // 删除最后一个元素的底部边框
+                if (i == data.length - 1) {
+                    td_name.style = `border-bottom: none`
+                    td_phone.style = `border-bottom: none`
+                }
+
+                // 设置鼠标滑过时的颜色
+                td_name.onmouseover = () => { tr.style.backgroundColor = `cornflowerblue` }
+                td_phone.onmouseover = () => { tr.style.backgroundColor = `cornflowerblue` }
+                td_name.onmouseout = () => { tr.style.backgroundColor = trColor }
+                td_phone.onmouseout = () => { tr.style.backgroundColor = trColor }
+
+                // 设置点中事件
+                td_name.click = tr.onclick
+                td_phone.onclick = tr.onclick
+                tr.onclick = () => {
+                    console.log("click")
+                    const inputName = document.querySelector('#name')
+                    const inputPhone = document.querySelector('#phone')
+                    inputName.value = td_name.innerText
+                    inputPhone.value = td_phone.innerText
+                }
+                // 添加节点
+                tr.appendChild(td_name)
+                tr.appendChild(td_phone)
+                table.appendChild(tr)
+            }
+        }
+
+        // 构建类
+        const db = new IndexedDB()
+        // 初始化
+        db.connectDB().then((res) => {
+            flushTable()
+        }).catch(err => {
+            console.error(err)
+        })
+
+        // 刷新table
+        const flushTable = () => {
+            db.findAll().then(res => {
+                global_table_data = res.data
+                createTable(global_table_data)
+            }).catch(err => {
+                console.error(err)
+            })
+        }
+
+        // 点击“添加”
+        const createData = () => {
+            const inputName = document.querySelector('#name').value
+            const inputPhone = document.querySelector('#phone').value
+            const params = {
+                name: inputName,
+                phone: inputPhone
+            }
+            db.createOne(params).then(res => {
+                alert("添加成功")
+                flushTable()
+            }).catch(err => {
+                alert(err.msg)
+            })
+        }
+
+        // 点击“查找”
+        const findData = () => {
+            const inputName = document.querySelector('#name').value
+            db.findByIndex('name', inputName).then(res => {
+                console.log(res)
+                document.querySelector('#phone').value = res.target.result.phone
+            }).catch(err => {
+                console.error(err)
+            })
+        }
+
+        // 点击“删除”
+        const deleteData = () => {
+            const inputPhone = document.querySelector('#phone').value
+            db.delData(inputPhone).then(res => {
+                alert(res.msg)
+                flushTable()
+            }).catch(err => {
+                alert(err.msg)
+            }) 
+        }
+    </script>
+</body>
+
+</html>
